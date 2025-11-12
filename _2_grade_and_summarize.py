@@ -20,7 +20,7 @@ from threading import Lock
 import csv
 from io import StringIO
 
-GROK_API_KEY = #os.environ['GROK_API_KEY']
+GROK_API_KEY = os.environ['GROK_API_KEY']
 
 """
 Grok API X Engineer Evaluation
