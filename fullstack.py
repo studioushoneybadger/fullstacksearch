@@ -18,19 +18,18 @@ from threading import Lock
 import csv
 from io import StringIO
 
+GROK_API_KEY = "your XAPI key here"
+
 class Tee(object):
     def __init__(self, *files):
         self.files = files
-
     def write(self, obj):
         for f in self.files:
             f.write(obj)
             f.flush()
-
     def flush(self):
         for f in self.files:
             f.flush()
-
 """
 _1_funnel.py – HIGH-QUALITY MODE
 • 9 criteria
@@ -46,20 +45,19 @@ class CONFIG:
     # === API & MODEL ===
     API_URL = "https://api.x.ai/v1/chat/completions"
     MODEL = "grok-4-fast-reasoning"
-    GROK_API_KEY = "xai-lHAGAlNkGNMM5dBC88SlQfC1QnB5opF16ajYUZDS7aemFG1Sn76U7R5flp4CznRKVbkg7eVgzjpJgO1B" # CHANGE ME!
     # === RATE LIMITING (80% of Premium+) ===
     CALLS_PER_MIN = 160
     TOKENS_PER_MIN = 400_000
     ESTIMATED_TOKENS_PER_CALL = 1800
     # === QUALITY & QUANTITY ===
-    HANDLES_PER_RUN = 5 #changing the handles per run to more than 7 is hallucination station.
-    RUNS_PER_CRITERION = 4 #this is the main variable to change if you want a larger dataset.  
+    HANDLES_PER_RUN = 7 #changing the handles per run to more than 7 is hallucination station.
+    RUNS_PER_CRITERION = 3 #this is the main variable to change if you want a larger dataset.
     # === NEW: DELAY BETWEEN API CALLS ===
     DELAY_BETWEEN_CALLS = 1.0 # seconds – increase to be gentler on API / avoid throttling
     # === FILTERS ===. not strictly followed
     MIN_AGE_YEARS = 0.5
     MIN_FOLLOWERS = 50
-    MAX_FOLLOWERS = 100_000  
+    MAX_FOLLOWERS = 100_000
     MAX_FOLLOWING_RATIO = 1.0
     MIN_TWEETS = 10
     MIN_BIO_LENGTH = 1
@@ -267,7 +265,7 @@ OUTPUT **only** valid JSON:
 def call_grok(prompt: str) -> Dict:
     limiter.wait()
     headers = {
-        "Authorization": f"Bearer {CONFIG.GROK_API_KEY}",
+        "Authorization": f"Bearer {GROK_API_KEY}",
         "Content-Type": "application/json"
     }
     payload = {
@@ -300,7 +298,6 @@ def extract_json(content: str) -> List[Dict]:
 # ----------------------------------------------------------------------
 # VERIFY HANDLES (UPDATED WITH RETRIES AND STRICTER HANDLING)
 # ----------------------------------------------------------------------
-
 def verify_handles(all_handles: List[Dict]) -> List[Dict]:
     if not all_handles:
         return []
@@ -404,11 +401,10 @@ def funnel_main():
         json.dump(final_output, f, indent=2)
     logging.info(f"Results saved to {CONFIG.OUTPUT_JSON_FILE}")
     if CONFIG.OUTPUT_TABLE and all_results:
-        table = [[h["handle"], h["reason"], f"C{h['criteria_id']}"] for h in all_results]
+        table = [[h.get("handle", ""), h.get("reason", ""), f"C{h.get('criteria_id', '?')}"] for h in all_results]
         print("\n" + tabulate(table, headers=["Handle", "Reason", "Crit"], tablefmt="grid"))
         print(f"\nTotal unique high-quality candidates: {len(all_results)}\n")
         print(f"DONEZO")
-
 """
 Grok API X Engineer Evaluation
 Evaluates specific X accounts from reply analysis against 9 full-stack engineer criteria.
@@ -417,7 +413,6 @@ Evaluates specific X accounts from reply analysis against 9 full-stack engineer 
 # CONFIGURATION - Tweak these parameters as needed
 # ============================================================================
 # Grok API Configuration
-GROK_API_KEY = 'xai-lHAGAlNkGNMM5dBC88SlQfC1QnB5opF16ajYUZDS7aemFG1Sn76U7R5flp4CznRKVbkg7eVgzjpJgO1B'
 GROK_API_URL = 'https://api.x.ai/v1/chat/completions' # Grok API endpoint
 GROK_MODEL = 'grok-4-fast-reasoning' # Model to use for searches
 # Search Configuration
@@ -557,7 +552,6 @@ class RateLimiter:
         self.period = period
         self.timestamps: List[float] = []
         self.lock = Lock()
-
     def acquire(self):
         with self.lock:
             now = time.time()
@@ -573,7 +567,6 @@ class RateLimiter:
                     while self.timestamps and self.timestamps[0] < now - self.period:
                         self.timestamps.pop(0)
             self.timestamps.append(now)
-
 class TokenRateLimiter:
     """
     Sliding window rate limiter for tokens, with pre-call estimate and post-call actual adjustment.
@@ -581,10 +574,9 @@ class TokenRateLimiter:
     def __init__(self, tokens_per_period: int, period: float, estimate_per_call: int):
         self.tokens_per_period = tokens_per_period
         self.period = period
-        self.entries: List[Tuple[float, int]] = []  # (timestamp, tokens)
+        self.entries: List[Tuple[float, int]] = [] # (timestamp, tokens)
         self.estimate_per_call = estimate_per_call
         self.lock = Lock()
-
     def acquire(self):
         with self.lock:
             now = time.time()
@@ -600,7 +592,6 @@ class TokenRateLimiter:
                     # Remove expired after sleep
                     while self.entries and self.entries[0][0] < now - self.period:
                         self.entries.pop(0)
-
     def add_actual(self, actual_tokens: int):
         with self.lock:
             now = time.time()
@@ -612,33 +603,30 @@ def evaluate_user_all_criteria(username: str, criteria_defs: Dict[str, Dict[str,
                                call_limiter: RateLimiter, token_limiter: TokenRateLimiter) -> List[Dict[str, Any]]:
     """
     Evaluate a specific user against all criteria using a single Grok API call.
-   
+  
     Args:
         username: X username (with or without @)
         criteria_defs: Dictionary of all criteria definitions
         call_limiter: Shared call rate limiter
         token_limiter: Shared token rate limiter
-       
+      
     Returns:
         List of evaluation results, one per criterion
     """
     username_clean = username.strip('@')
-    
+   
     # Build the criteria descriptions string
     criteria_str = ""
     for criterion_name, criterion_def in criteria_defs.items():
         keywords_str = ', '.join(criterion_def['keywords'][:10])
-        criteria_str += f"- Criterion: {criterion_name}\n  Description: {criterion_def['description']}\n  Relevant keywords: {keywords_str}\n\n"
-    
+        criteria_str += f"- Criterion: {criterion_name}\n Description: {criterion_def['description']}\n Relevant keywords: {keywords_str}\n\n"
+   
     prompt = f"""Analyze @{username_clean}'s X (Twitter) profile and recent posts to evaluate against the following 9 criteria.
 Search their profile, bio, pinned posts, and recent posts (last {DATE_RANGE_DAYS} days) for evidence.
-
 Criteria:
 {criteria_str}
-
 For each criterion, determine if there's clear evidence of a match.
 Be thorough but realistic. Only mark as matching if there's clear evidence.
-
 Return a JSON object with this structure:
 {{
   "username": "@{username_clean}",
@@ -663,55 +651,54 @@ Return a JSON object with this structure:
   ]
 }}
 Ensure there are exactly 9 evaluations, one for each criterion provided."""
-
     headers = {
         'Authorization': f'Bearer {GROK_API_KEY}',
         'Content-Type': 'application/json'
     }
-   
+  
     payload = {
         'model': GROK_MODEL,
         'messages': [
             {'role': 'user', 'content': prompt}
         ],
         'temperature': 0.3,
-        'max_tokens': 4000 * 9  # Increased to handle larger response
+        'max_tokens': 4000 * 9 # Increased to handle larger response
     }
-   
+  
     for attempt in range(MAX_RETRIES):
         try:
             # Acquire rate limits before request
             call_limiter.acquire()
             token_limiter.acquire()
-            
-            response = requests.post(GROK_API_URL, headers=headers, json=payload, timeout=30)
            
+            response = requests.post(GROK_API_URL, headers=headers, json=payload, timeout=30)
+          
             # Handle rate limiting from API
             if response.status_code == 429:
                 retry_after = int(response.headers.get('Retry-After', RETRY_BACKOFF_BASE ** attempt))
                 print(f"Rate limited by API. Waiting {retry_after} seconds...")
                 time.sleep(retry_after)
                 continue
-           
+          
             response.raise_for_status()
-           
+          
             data = response.json()
-            
+           
             # Get actual token usage
             usage = data.get('usage', {})
             prompt_tokens = usage.get('prompt_tokens', 0)
             completion_tokens = usage.get('completion_tokens', 0)
             total_tokens = prompt_tokens + completion_tokens
             token_limiter.add_actual(total_tokens)
-            
-            content = data.get('choices', [{}])[0].get('message', {}).get('content', '')
            
+            content = data.get('choices', [{}])[0].get('message', {}).get('content', '')
+          
             # Extract JSON from response (may be wrapped in markdown code blocks)
             if '```json' in content:
                 content = content.split('```json')[1].split('```')[0].strip()
             elif '```' in content:
                 content = content.split('```')[1].split('```')[0].strip()
-           
+          
             try:
                 result = json.loads(content)
                 if isinstance(result, dict) and 'evaluations' in result:
@@ -727,13 +714,13 @@ Ensure there are exactly 9 evaluations, one for each criterion provided."""
             except json.JSONDecodeError as e:
                 print(f"Warning: Failed to parse JSON for @{username_clean}: {e}")
                 print(f"Response content: {content[:200]}...")
-               
+              
             # If parsing fails, return default non-matches
             return [
                 {'username': username, 'criterion': crit, 'matches': False, 'match_score': 0.0, 'evidence': [], 'reasoning': 'Parsing failed'}
                 for crit in criteria_defs.keys()
             ]
-               
+              
         except requests.exceptions.RequestException as e:
             # On error, add 0 tokens (or estimate) to not block the limiter
             token_limiter.add_actual(0)
@@ -747,7 +734,7 @@ Ensure there are exactly 9 evaluations, one for each criterion provided."""
                     {'username': username, 'criterion': crit, 'matches': False, 'match_score': 0.0, 'evidence': [], 'reasoning': 'Request failed'}
                     for crit in criteria_defs.keys()
                 ]
-   
+  
     return [
         {'username': username, 'criterion': crit, 'matches': False, 'match_score': 0.0, 'evidence': [], 'reasoning': 'Max retries exceeded'}
         for crit in criteria_defs.keys()
@@ -758,34 +745,34 @@ Ensure there are exactly 9 evaluations, one for each criterion provided."""
 def calculate_engagement_score(evidence: List[Dict[str, Any]]) -> float:
     """
     Calculate weighted engagement score from evidence posts.
-   
+  
     Args:
         evidence: List of evidence posts with engagement metrics
-       
+      
     Returns:
         Weighted engagement score
     """
     total_engagement = 0.0
-   
+  
     for post in evidence:
         likes = post.get('likes', 0)
         replies = post.get('replies', 0)
-       
+      
         # Weight likes
         total_engagement += likes * LIKE_WEIGHT
-       
+      
         # Note: Large account replies would need to be determined from reply_authors data
         # For now, we'll use replies count as a proxy
         total_engagement += replies * 0.5
-   
+  
     return total_engagement
 def calculate_recency_score(created_at: str) -> float:
     """
     Calculate recency score (higher = more recent).
-   
+  
     Args:
         created_at: ISO format datetime string
-       
+      
     Returns:
         Recency score between 0 and 1
     """
@@ -793,60 +780,60 @@ def calculate_recency_score(created_at: str) -> float:
         post_date = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
         now = datetime.now(post_date.tzinfo) if post_date.tzinfo else datetime.now(timezone.utc)
         days_ago = (now - post_date.replace(tzinfo=None)).days if not post_date.tzinfo else (now - post_date).days
-       
+      
         # Score decreases with age, max at 0 days, min at DATE_RANGE_DAYS
         if days_ago < 0:
             days_ago = 0
         if days_ago > DATE_RANGE_DAYS:
             return 0.0
-       
+      
         return 1.0 - (days_ago / DATE_RANGE_DAYS)
     except (ValueError, AttributeError):
         return 0.5 # Default score if parsing fails
 def score_user(user_data: Dict[str, Any], matches: List[str]) -> float:
     """
     Calculate overall score for a user.
-   
+  
     Args:
         user_data: Aggregated user data
         matches: List of criterion names that match
-       
+      
     Returns:
         Overall score
     """
     match_count = len(matches)
     match_score = min(match_count / 9.0, 1.0) # Normalize to 0-1
-   
+  
     engagement = user_data.get('total_engagement', 0)
     # Normalize engagement (assume max ~10000 for normalization)
     normalized_engagement = min(engagement / 10000.0, 1.0)
-   
+  
     recency = user_data.get('avg_recency', 0.5)
-   
+  
     score = (
         match_score * SCORING_WEIGHTS['match_count'] +
         normalized_engagement * SCORING_WEIGHTS['engagement'] +
         recency * SCORING_WEIGHTS['recency']
     )
-   
+  
     return score * 10 # Scale to 0-10 for readability
 def aggregate_evaluations(evaluations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Aggregate evaluation results by user and calculate scores.
-   
+  
     Args:
         evaluations: List of evaluation results for each user-criterion pair
-       
+      
     Returns:
         List of users with aggregated scores, sorted by score
     """
     user_data: Dict[str, Dict[str, Any]] = {}
-   
+  
     for eval_result in evaluations:
         username = eval_result.get('username', '').lower()
         if not username:
             continue
-       
+      
         if username not in user_data:
             user_data[username] = {
                 'username': eval_result.get('username', ''),
@@ -855,10 +842,10 @@ def aggregate_evaluations(evaluations: List[Dict[str, Any]]) -> List[Dict[str, A
                 'all_evidence': [],
                 'criterion_details': {}
             }
-       
+      
         user = user_data[username]
         criterion = eval_result.get('criterion', '')
-       
+      
         if eval_result.get('matches', False):
             user['matches'].append(criterion)
             user['match_scores'].append(eval_result.get('match_score', 0.0))
@@ -868,22 +855,22 @@ def aggregate_evaluations(evaluations: List[Dict[str, Any]]) -> List[Dict[str, A
                 'reasoning': eval_result.get('reasoning', ''),
                 'evidence_count': len(eval_result.get('evidence', []))
             }
-   
+  
     # Calculate final scores
     ranked_users = []
     for username, data in user_data.items():
         matches = sorted(data['matches'])
         match_count = len(matches)
-       
+      
         # Average match score across matched criteria
         avg_match_score = (
             sum(data['match_scores']) / len(data['match_scores'])
             if data['match_scores'] else 0.0
         )
-       
+      
         # Calculate engagement from evidence
         total_engagement = calculate_engagement_score(data['all_evidence'])
-       
+      
         # Calculate recency from evidence
         recency_scores = [
             calculate_recency_score(ev.get('created_at', ''))
@@ -893,14 +880,14 @@ def aggregate_evaluations(evaluations: List[Dict[str, Any]]) -> List[Dict[str, A
             sum(recency_scores) / len(recency_scores)
             if recency_scores else 0.5
         )
-       
+      
         # Calculate overall score
         user_data_for_scoring = {
             'total_engagement': total_engagement,
             'avg_recency': avg_recency
         }
         score = score_user(user_data_for_scoring, matches)
-       
+      
         ranked_users.append({
             'username': data['username'],
             'score': round(score, 2),
@@ -912,10 +899,10 @@ def aggregate_evaluations(evaluations: List[Dict[str, Any]]) -> List[Dict[str, A
             'evidence_count': len(data['all_evidence']),
             'criterion_details': data['criterion_details']
         })
-   
+  
     # Sort by score descending
     ranked_users.sort(key=lambda x: x['score'], reverse=True)
-   
+  
     return ranked_users[:TOP_N_RESULTS] if TOP_N_RESULTS > 0 else ranked_users
 # ============================================================================
 # MAIN FUNCTION
@@ -926,31 +913,31 @@ def grade_main():
     print("Grok API X Engineer Evaluation")
     print("=" * 80)
     print()
-   
+  
     # Load users from reply analysis
     print(f"Loading users from {REPLY_TARGETS_FILE}...")
     usernames = load_users_from_reply_analysis()
-   
+  
     if not usernames:
         print("No users found. Exiting.")
         return
-   
+  
     print(f"Found {len(usernames)} users to evaluate")
     print(f"Evaluating against 9 criteria with 1 API call per user...")
     print(f"Using {MAX_CONCURRENT_REQUESTS} parallel workers\n")
-   
+  
     # Initialize rate limiters
     call_limiter = RateLimiter(RATE_LIMIT_CALLS_PER_MINUTE, 60.0)
     token_limiter = TokenRateLimiter(RATE_LIMIT_TOKENS_PER_MINUTE, 60.0, TOKEN_ESTIMATE_PER_CALL)
-   
+  
     # Create evaluation tasks per user
     tasks = [(username, CRITERIA_DEFINITIONS) for username in usernames]
-   
+  
     total_evals = len(tasks)
     completed_counter = {'value': 0}
     all_evaluations = []
     lock = Lock()
-   
+  
     def process_evaluation(username: str, criteria_defs: Dict[str, Dict[str, Any]]) -> Tuple[str, List[Dict[str, Any]]]:
         """Process a single user evaluation across all criteria."""
         results = evaluate_user_all_criteria(username, criteria_defs, call_limiter, token_limiter)
@@ -961,7 +948,7 @@ def grade_main():
             avg_score = sum(r.get('match_score', 0.0) for r in results) / len(results) if results else 0.0
             print(f" [{completed}/{total_evals}] {username}: {match_count}/9 matches (avg score: {avg_score:.2f})")
         return username, results
-   
+  
     # Process all evaluations in parallel
     with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_REQUESTS) as executor:
         # Submit all tasks
@@ -969,7 +956,7 @@ def grade_main():
             executor.submit(process_evaluation, username, criteria_defs): username
             for username, criteria_defs in tasks
         }
-       
+      
         # Collect results as they complete
         for future in as_completed(future_to_task):
             try:
@@ -982,17 +969,17 @@ def grade_main():
                     {'username': f'@{username.strip("@")}', 'criterion': crit, 'matches': False, 'match_score': 0.0, 'evidence': []}
                     for crit in CRITERIA_DEFINITIONS.keys()
                 ])
-   
+  
     print(f"\nEvaluation complete. Aggregating results...\n")
-   
+  
     # Aggregate and rank
     ranked_engineers = aggregate_evaluations(all_evaluations)
-   
+  
     # Output to console
     print("=" * 80)
     print(f"Top {len(ranked_engineers)} Engineers (by score):")
     print("=" * 80)
-   
+  
     for rank, engineer in enumerate(ranked_engineers, 1):
         print(f"\n{rank}. {engineer['username']} - Score: {engineer['score']}")
         print(f" Matches ({engineer['match_count']}/9): {', '.join(engineer['matches'])}")
@@ -1000,14 +987,14 @@ def grade_main():
         print(f" Engagement: {engineer['total_engagement']:.2f} | "
               f"Recency: {engineer['avg_recency']:.2f} | "
               f"Evidence Posts: {engineer['evidence_count']}")
-       
+      
         # Show criterion details
         if engineer['criterion_details']:
             print(" Criterion Details:")
             for crit, details in engineer['criterion_details'].items():
                 print(f" - {crit}: {details['match_score']:.2f} "
                       f"({details['evidence_count']} posts)")
-   
+  
     # Output to JSON
     output_data = {
         'timestamp': datetime.now(timezone.utc).isoformat(),
@@ -1022,34 +1009,31 @@ def grade_main():
         'ranked_engineers': ranked_engineers,
         'all_evaluations': all_evaluations
     }
-   
+  
     with open(OUTPUT_JSON_FILE, 'w', encoding='utf-8') as f:
         json.dump(output_data, f, indent=2, ensure_ascii=False)
-    
+   
     # New: Summary of top 10 accounts as separate JSON
     with open('_10fullstackengineers.json', 'w', encoding='utf-8') as f:
         json.dump(ranked_engineers, f, indent=2, ensure_ascii=False)
-    
+   
     # New: Export top 10 handles to CSV
     with open('_10potential_fullstack_candidates.csv', 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
-        writer.writerow(['handle'])  # Header
+        writer.writerow(['handle']) # Header
         for engineer in ranked_engineers:
             writer.writerow([engineer['username']])
-   
+  
     print(f"\n{'=' * 80}")
     print(f"Results saved to {OUTPUT_JSON_FILE}")
     print(f"Top 10 summary saved to _10fullstackengineers.json")
     print(f"Top 10 handles exported to _10potential_fullstack_candidates.csv")
     print(f"DONEZO")
-
 # Get the current Python executable
 python_exe = sys.executable
-
 # Define filenames
 first_script = '_1 funnel.py'
 second_script = '_2 grade and summarize.py'
-
 # Run the first script and capture its output while printing to console
 original_stdout = sys.stdout
 buf = StringIO()
@@ -1057,16 +1041,15 @@ sys.stdout = Tee(original_stdout, buf)
 funnel_main()
 sys.stdout = original_stdout
 output = buf.getvalue()
-
 # Check if "DONEZO" was printed
 if "DONEZO" in output:
-    time.sleep(1)  # Wait 1 second
-    
+    time.sleep(1) # Wait 1 second
+   
     grade_main()
-    
+   
     # Prompt to press any key (Unix-compatible for Mac)
     print("Everything successful. Press any key to continue.")
-    
+   
     # Function to wait for any key press without echo
     fd = sys.stdin.fileno()
     oldattr = termios.tcgetattr(fd)
