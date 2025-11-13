@@ -385,56 +385,71 @@ yes, 0
     print(f"Valid handles found: {len(valid_entries)}", flush=True)
     return valid_entries
 # ----------------------------------------------------------------------
-# MAIN: 9 criteria × 5 runs
+# MAIN: Cycles until >=80 verified handles
 # ----------------------------------------------------------------------
 def funnel_main():
-    all_results = []
+    verified_results = []
     global_excluded: Set[str] = set()
-    total_expected = len(CONFIG.CRITERIA) * CONFIG.HANDLES_PER_RUN
-    logging.info(f"Starting high-quality funnel: {CONFIG.RUNS_PER_CRITERION} runs × {len(CONFIG.CRITERIA)} criteria")
-    for criterion_id in CONFIG.CRITERIA.keys():
-        logging.info(f"── Criterion {criterion_id}: {CONFIG.CRITERIA[criterion_id]['name']} ──")
-        found_in_criterion = 0
-        for run in range(1, CONFIG.RUNS_PER_CRITERION + 1):
-            prompt = build_prompt(criterion_id, global_excluded)
-            if CONFIG.DEBUG_MODE:
-                print(f"\n--- RUN {run} / CRITERION {criterion_id} ---\n{prompt}\n")
-            resp = call_grok(prompt)
-            if not resp or "choices" not in resp:
-                logging.warning(f"Run {run} failed. Retrying in next cycle...")
-                time.sleep(2)
-                continue
-            content = resp["choices"][0]["message"]["content"]
-            handles = extract_json(content)
-            new_handles = []
-            for h in handles:
-                handle = h["handle"].lstrip("@").lower()
-                if handle not in global_excluded:
-                    new_handles.append(h)
-                    global_excluded.add(handle)
-            all_results.extend(new_handles)
-            found_in_criterion += len(new_handles)
-            logging.info(f" Run {run}: +{len(new_handles)} new → {found_in_criterion}/{CONFIG.HANDLES_PER_RUN * CONFIG.RUNS_PER_CRITERION} total")
-            if len(new_handles) == 0:
-                logging.info(" No new handles. Moving to next criterion.")
-                break
-            time.sleep(CONFIG.DELAY_BETWEEN_CALLS) # Be gentle
-        logging.info(f"Criterion {criterion_id} complete: {found_in_criterion} unique handles")
-    # ------------------------------------------------------------------
-    # VERIFY
-    # ------------------------------------------------------------------
-    all_results = verify_handles(all_results)
+    logging.info(f"Starting high-quality funnel: {CONFIG.RUNS_PER_CRITERION} runs × {len(CONFIG.CRITERIA)} criteria per cycle")
+    cycle = 0
+    max_cycles = 3  # Safety limit to prevent infinite loops
+    target_handles = 80
+
+    while len(verified_results) < target_handles and cycle < max_cycles:
+        cycle += 1
+        logging.info(f"── Starting cycle {cycle} (current total: {len(verified_results)}/{target_handles}) ──")
+        new_raw = []
+        for criterion_id in CONFIG.CRITERIA.keys():
+            logging.info(f"── Criterion {criterion_id}: {CONFIG.CRITERIA[criterion_id]['name']} ──")
+            found_in_criterion = 0
+            for run in range(1, CONFIG.RUNS_PER_CRITERION + 1):
+                prompt = build_prompt(criterion_id, global_excluded)
+                if CONFIG.DEBUG_MODE:
+                    print(f"\n--- RUN {run} / CRITERION {criterion_id} ---\n{prompt}\n")
+                resp = call_grok(prompt)
+                if not resp or "choices" not in resp:
+                    logging.warning(f"Run {run} failed. Retrying in next cycle...")
+                    time.sleep(2)
+                    continue
+                content = resp["choices"][0]["message"]["content"]
+                handles = extract_json(content)
+                new_handles = []
+                for h in handles:
+                    handle = h["handle"].lstrip("@").lower()
+                    if handle not in global_excluded:
+                        new_handles.append(h)
+                        global_excluded.add(handle)
+                new_raw.extend(new_handles)
+                found_in_criterion += len(new_handles)
+                logging.info(f" Run {run}: +{len(new_handles)} new → {found_in_criterion}/{CONFIG.HANDLES_PER_RUN * CONFIG.RUNS_PER_CRITERION} total")
+                if len(new_handles) == 0:
+                    logging.info(" No new handles. Moving to next criterion.")
+                    break
+                time.sleep(CONFIG.DELAY_BETWEEN_CALLS) # Be gentle
+            logging.info(f"Criterion {criterion_id} complete: {found_in_criterion} unique handles")
+        
+        if not new_raw:
+            logging.info("No new raw handles found in this cycle. Stopping.")
+            break
+        
+        # ------------------------------------------------------------------
+        # VERIFY new raw handles
+        # ------------------------------------------------------------------
+        verified_new = verify_handles(new_raw)
+        verified_results.extend(verified_new)
+        logging.info(f"Cycle {cycle} complete: Added {len(verified_new)} verified handles. Total now: {len(verified_results)}")
+
     # ------------------------------------------------------------------
     # SAVE & DISPLAY
     # ------------------------------------------------------------------
-    final_output = {"handles": all_results}
+    final_output = {"handles": verified_results}
     with open(CONFIG.OUTPUT_JSON_FILE, "w", encoding="utf-8") as f:
         json.dump(final_output, f, indent=2)
     logging.info(f"Results saved to {CONFIG.OUTPUT_JSON_FILE}")
-    if CONFIG.OUTPUT_TABLE and all_results:
-        table = [[h.get("handle", ""), h.get("reason", ""), f"C{h.get('criteria_id', '?')}"] for h in all_results]
+    if CONFIG.OUTPUT_TABLE and verified_results:
+        table = [[h.get("handle", ""), h.get("reason", ""), f"C{h.get('criteria_id', '?')}"] for h in verified_results]
         print("\n" + tabulate(table, headers=["Handle", "Reason", "Crit"], tablefmt="grid"))
-        print(f"\nTotal unique high-quality candidates: {len(all_results)}\n")
+        print(f"\nTotal unique high-quality candidates: {len(verified_results)}\n")
         print(f"DONEZO")
 
 if __name__ == "__main__":
