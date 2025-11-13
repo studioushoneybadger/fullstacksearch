@@ -42,7 +42,7 @@ class CONFIG:
     TOKENS_PER_MIN = 400_000
     ESTIMATED_TOKENS_PER_CALL = 1800
     # === QUALITY & QUANTITY ===
-    TARGET_HANDLES = 69  # Total number of verified handles to aim for
+    TARGET_HANDLES = 81  # Total number of verified handles to aim for
     HANDLES_PER_RUN = 7 #changing the handles per run to more than 7 is hallucination station.
     RUNS_PER_CRITERION = 3 #this is the main variable to change if you want a larger dataset.
     # === NEW: DELAY BETWEEN API CALLS ===
@@ -391,7 +391,7 @@ def funnel_main():
     global_excluded: Set[str] = set()
     logging.info(f"Starting high-quality funnel: {CONFIG.RUNS_PER_CRITERION} runs × {len(CONFIG.CRITERIA)} criteria per cycle")
     cycle = 0
-    max_cycles = 3  # Safety limit to prevent infinite loops
+    max_cycles = 4  # Safety limit to prevent infinite loops
     target_handles = CONFIG.TARGET_HANDLES
 
     while len(verified_results) < target_handles and cycle < max_cycles:
