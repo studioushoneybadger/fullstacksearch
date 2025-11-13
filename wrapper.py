@@ -48,13 +48,15 @@ if "DONEZO" in output:
     
     # Run the second script
     print(f"Running {second_script}...")
-    process2 = subprocess.Popen([sys.executable, second_script], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    
+    process2 = subprocess.Popen([sys.executable, '-u', second_script], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)  # NEW: Add '-u' for unbuffered output
+
     for line in process2.stdout:
         sys.stdout.write(line)
-    
+        sys.stdout.flush()  # Keep this for good measure
+
     process2.wait()
-    
+
     print("Second script completed.")
+
 else:
     print("First script did not print 'DONEZO'. Second script not executed.")
