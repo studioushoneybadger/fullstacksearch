@@ -39,8 +39,8 @@ GROK_MODEL = 'grok-4-fast-reasoning' # Model to use for searches
 SEARCH_LIMIT_PER_QUERY = 50 # Number of results to retrieve per search query
 DATE_RANGE_DAYS = 360 # Search within the last N days
 # Parallelization Configuration
-MAX_CONCURRENT_REQUESTS = 5 # Number of parallel API calls (200 calls/min = ~3.3/sec, so 5 is safe)
-RATE_LIMIT_CALLS_PER_MINUTE = 100 # 50% of premium+ limit: 200 calls per minute
+MAX_CONCURRENT_REQUESTS = 10 # Number of parallel API calls (200 calls/min = ~3.3/sec, so 5 is safe)
+RATE_LIMIT_CALLS_PER_MINUTE = 160 # 80% of premium+ limit: 200 calls per minute
 RATE_LIMIT_TOKENS_PER_MINUTE = 250000 # 50% of premium+ limit: 500k tokens per minute
 TOKEN_ESTIMATE_PER_CALL = 45000 # Conservative estimate for tokens per call (prompt + max completion), increased due to consolidation
 # Scoring Configuration
@@ -114,7 +114,7 @@ def load_users_from_reply_analysis() -> List[str]:
         print(f"Error: Unexpected issue loading {REPLY_TARGETS_FILE}: {e}")
         return []
 # Output Configuration
-TOP_N_RESULTS = 10 # Number of top engineers to output
+TOP_N_RESULTS = 15 # Number of top engineers to output
 OUTPUT_JSON_FILE = 'step2_raw_grades.json' # JSON output filename
 # Retry Configuration
 MAX_RETRIES = 5 # Maximum number of retries for failed requests
@@ -648,12 +648,12 @@ def grade_main():
     with open(OUTPUT_JSON_FILE, 'w', encoding='utf-8') as f:
         json.dump(output_data, f, indent=2, ensure_ascii=False)
    
-    # New: Summary of top 10 accounts as separate JSON
-    with open('_10fullstackengineers.json', 'w', encoding='utf-8') as f:
+    # New: Summary of top 15 accounts as separate JSON
+    with open('_15fullstackengineers.json', 'w', encoding='utf-8') as f:
         json.dump(ranked_engineers, f, indent=2, ensure_ascii=False)
    
-    # New: Export top 10 handles to CSV
-    with open('_10potential_fullstack_candidates.csv', 'w', newline='', encoding='utf-8') as f:
+    # New: Export top 15 handles to CSV
+    with open('_15potential_fullstack_candidates.csv', 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
         writer.writerow(['handle']) # Header
         for engineer in ranked_engineers:
@@ -661,8 +661,8 @@ def grade_main():
   
     print(f"\n{'=' * 80}")
     print(f"Results saved to {OUTPUT_JSON_FILE}")
-    print(f"Top 10 summary saved to _10fullstackengineers.json")
-    print(f"Top 10 handles exported to _10potential_fullstack_candidates.csv")
+    print(f"Top 15 summary saved to _15fullstackengineers.json")
+    print(f"Top 15 handles exported to _15potential_fullstack_candidates.csv")
     print(f"DONEZO")
 
 if __name__ == "__main__":
