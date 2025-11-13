@@ -29,12 +29,15 @@ Evaluates specific X accounts from reply analysis against 9 full-stack engineer 
 # ============================================================================
 # CONFIGURATION - Tweak these parameters as needed
 # ============================================================================
+# Debugging Configuration
+DEBUG = False  # Set to True to enable printing of prompts and API responses
+
 # Grok API Configuration
 GROK_API_URL = 'https://api.x.ai/v1/chat/completions' # Grok API endpoint
 GROK_MODEL = 'grok-4-fast-reasoning' # Model to use for searches
 # Search Configuration
 SEARCH_LIMIT_PER_QUERY = 50 # Number of results to retrieve per search query
-DATE_RANGE_DAYS = 60 # Search within the last N days
+DATE_RANGE_DAYS = 360 # Search within the last N days
 # Parallelization Configuration
 MAX_CONCURRENT_REQUESTS = 5 # Number of parallel API calls (200 calls/min = ~3.3/sec, so 5 is safe)
 RATE_LIMIT_CALLS_PER_MINUTE = 100 # 50% of premium+ limit: 200 calls per minute
@@ -277,6 +280,9 @@ the scoring goes from 0-1 like this:
 1: strong proficiency
 
 """
+    if DEBUG:
+        print(f"\nDEBUG: Prompt for {username}:\n{'=' * 80}\n{prompt}\n{'=' * 80}\n")
+
     headers = {
         'Authorization': f'Bearer {GROK_API_KEY}',
         'Content-Type': 'application/json'
@@ -318,6 +324,9 @@ the scoring goes from 0-1 like this:
             token_limiter.add_actual(total_tokens)
            
             content = data.get('choices', [{}])[0].get('message', {}).get('content', '')
+
+            if DEBUG:
+                print(f"\nDEBUG: API Response for {username}:\n{'=' * 80}\n{content}\n{'=' * 80}\n")
           
             # Extract JSON from response (may be wrapped in markdown code blocks)
             if '```json' in content:
